@@ -7,7 +7,7 @@
 
 
 //Coen320_Lab (Task0): Radar Channel name should contain your group name
-#define Radar "my_group_Radar" //attach point for AirTrafficControl
+#define Radar "Richard_Yahia" //attach point for AirTrafficControl
 /*#define Display_ID "display" //attach point for AirTrafficControl // You need to set this for Part 2 (Display)*/
 
 void* updatePositionThread(void* arg) {
@@ -26,7 +26,10 @@ Aircraft::Aircraft(int id, double x, double y, double z, double sx, double sy, d
 	// Worker function parameters: (void*)this
 	// Thread handler id: thread_id
 	//Note: you need to verify if thread creation successfully done, otherwise print the error
-
+	int rc = pthread_create(&thread_id, nullptr, updatePositionThread, (void*)this);
+	    if (rc != 0) {
+	        std::cerr << "Error creating thread: " << std::strerror(rc) << std::endl;
+	    }
 }
 
 Aircraft::~Aircraft(){};
@@ -67,7 +70,7 @@ int Aircraft::updatePosition() {
     // Open channel with radar and verify if the channel opened successfully
     //Use the function name_open with the radar channel name and parameter 0
 
-    if ((Radar_id = /* open the channel here*/) == -1) {
+    if ((Radar_id = name_open("Radar_Richard_Yahia",0)) == -1) {
 		perror("Error occurred while creating the channel with Radar");
 		return EXIT_FAILURE;
 	}
@@ -87,7 +90,7 @@ int Aircraft::updatePosition() {
     //For more information use ctrl+space
     //answer: MsgSend(Radar_id, &createEnterAirspaceMessage, sizeof(createEnterAirspaceMessage),0,0)
 
-    if (/* Put the MsgSend function here*/ == -1) {
+    if ( MsgSend(Radar_id, &enterAirspaceMessage, sizeof(enterAirspaceMessage),0,0) == -1) {
             std::cout << "Failed to send enter message to Radar!\n";
             return EXIT_FAILURE;
 	}
@@ -96,7 +99,7 @@ int Aircraft::updatePosition() {
     //Coen320_Lab (Task0): Create channel to be reachable by radar that wants to poll the Airplane
     //To chose the polling channel concatenate your group name with the plane id
     //Note: It is critical to not interfere other groups
-    std::string id_str = "your_group_name_or_id"+std::to_string(id);  // Convert integer id to string
+    std::string id_str = "Richard_Yahia"+std::to_string(id);  // Convert integer id to string
     const char* ID = id_str.c_str();         // Convert string to const char*
     name_attach_t* Plane_channel = name_attach(NULL, ID, 0); // For server
 
@@ -194,8 +197,8 @@ Message Aircraft::createEnterAirspaceMessage(int planeID){
 Message Aircraft::createExitAirspaceMessage(int planeID){
 
 	Message msg;
-	msg.type = ;// Use the correct Message type
-	msg.planeID = ;// Use the passed Plane ID
+	msg.type = MessageType::EXIT_AIRSPACE;// Use the correct Message type
+	msg.planeID = planeID;// Use the passed Plane ID
 	msg.data = NULL;
 
 	return msg;
@@ -204,8 +207,8 @@ Message Aircraft::createExitAirspaceMessage(int planeID){
 Message Aircraft::createPositionUpdateMessage(int planeID, const msg_plane_info& info) {
 
     Message msg;
-    msg.type = ; // Use the correct Message type
-    msg.planeID = ;// Use the passed Plane ID
+    msg.type = MessageType::POSITION_UPDATE; // Use the correct Message type
+    msg.planeID = planeID;// Use the passed Plane ID
     msg.data = (void*)&info;  // Allocate and copy info data
 
     return msg;

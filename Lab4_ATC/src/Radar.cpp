@@ -43,7 +43,7 @@ std::vector<msg_plane_info>& Radar::getActiveBuffer() {
 //To choose the channel with concatenating your group name with "Radar"
 //Note: It is critical to not interfere with other groups
 void Radar::ListenAirspaceArrivalAndDeparture() {
-	Radar_channel = name_attach(NULL, "your_group_name_or_Radar_id", 0);
+	Radar_channel = name_attach(NULL, "Radar_Richard_Yahia", 0);
 	if (Radar_channel == NULL) {
 		std::cerr << "Failed to create channel for Radar" << std::endl;
 		exit(EXIT_FAILURE);
@@ -141,7 +141,7 @@ msg_plane_info Radar::getAircraftData(int id) {
 	//Coen320_Lab (Task0): You need to correct the channel name
 	//It is your group name + plane id
 
-	std::string id_str = "your_group_name_or_id"+std::to_string(id);  // Convert integer id to string
+	std::string id_str = "Richard_Yahia"+std::to_string(id);  // Convert integer id to string
 	const char* ID = id_str.c_str();         // Convert string to const char*
 	int plane_channel = name_open(ID, 0);
 
@@ -187,54 +187,73 @@ void Radar::removePlaneFromAirspace(int planeID) {
 
 
 void Radar::writeToSharedMemory() {
-	// COEN320 Lab4_5 Task 2.1
-	/*
-	You need to implement the shared memory writing process here
-	Save SharedMemory structure to shared memory
-	Make sure to use mutex to protect the buffer switching process (e.g., bufferSwitchMutex)
-	To store aircraft data, use inactiveBuffer which is obtained from getActiveBuffer() method
-	Check the code snippet below for reference
-	at the end you need to unmap the shared memory and close the file descriptor
-	e.g., munmap(<SharedMemory object, shared_mem>, SHARED_MEMORY_SIZE) and close(shm_fd)
+    // Protect buffer switching / access to shared buffers
+    std::lock_guard<std::mutex> lock(bufferSwitchMutex);
 
-
-	// Get the active buffer based on the current active index
+    // Get the active buffer based on the current active index
     std::vector<msg_plane_info>& activeBuffer = getActiveBuffer();
+
     // Get the current timestamp
-    shared_mem->timestamp = tick_counter_ref;
+    sharedMemPtr->timestamp = tick_counter_ref;
 
-	// Check if activeBuffer is empty and set the flag accordingly
-	if (activeBuffer.empty()) {
-		std::vector<msg_plane_info>& inactiveBuffer = planesInAirspaceData[(activeBufferIndex + 1) % 2];
-		if (!inactiveBuffer.empty()){
-			shared_mem->is_empty.store(false);
-			shared_mem->count = inactiveBuffer.size();
-			std::memcpy(shared_mem->plane_data, inactiveBuffer.data(), inactiveBuffer.size() * sizeof(msg_plane_info));
-			inactiveBuffer.clear();
-		}
-		shared_mem->is_empty.store(true);
-		shared_mem->count = 0;  // No planes
-	} else {
-            shared_mem->is_empty.store(false);
-            shared_mem->count = activeBuffer.size();
-            std::memcpy(shared_mem->plane_data, activeBuffer.data(), activeBuffer.size() * sizeof(msg_plane_info));
-            activeBuffer.clear();
+    // If active buffer is empty, try the inactive buffer
+    if (activeBuffer.empty()) {
+        std::vector<msg_plane_info>& inactiveBuffer =
+            planesInAirspaceData[(activeBufferIndex + 1) % 2];
+
+        if (!inactiveBuffer.empty()) {
+            sharedMemPtr->is_empty.store(false);
+            sharedMemPtr->count = static_cast<int>(inactiveBuffer.size());
+
+            std::memcpy(sharedMemPtr->plane_data,
+                        inactiveBuffer.data(),
+                        inactiveBuffer.size() * sizeof(msg_plane_info));
+
+            inactiveBuffer.clear();
+        } else {
+            sharedMemPtr->is_empty.store(true);
+            sharedMemPtr->count = 0;
         }
-	// clean up
+    } else {
+        sharedMemPtr->is_empty.store(false);
+        sharedMemPtr->count = static_cast<int>(activeBuffer.size());
 
-	*/
-	
+        std::memcpy(sharedMemPtr->plane_data,
+                    activeBuffer.data(),
+                    activeBuffer.size() * sizeof(msg_plane_info));
+
+        activeBuffer.clear();
+    }
+
+    // Clean up shared memory mapping and file descriptor
+    munmap(sharedMemPtr, SHARED_MEMORY_SIZE);
+    close(shm_fd);
 }
 
 void Radar::clearSharedMemory() {
-	// COEN320 Lab4_5 Task 2.2
-	// You need to implement the shared memory clearing process here
-	// Initialize the shared memory structure to an empty state
-	// You need to clear plane_data, count, etc.
-	// e.g.
-	//std::memset(sharedMemPtr->plane_data, 0, sizeof(sharedMemPtr->plane_data));  // Clear plane data
-	//sharedMemPtr->count = 0;  // No planes initially
-	//sharedMemPtr->is_empty.store(true);  // Set the is_empty flag to false to not block reader
-	// Finally unmap the shared memory and close the file descriptor
-	
+    // Protect access while clearing shared memory
+    std::lock_guard<std::mutex> lock(bufferSwitchMutex);
+
+    if (sharedMemPtr != nullptr) {
+        // Clear plane data
+        std::memset(sharedMemPtr->plane_data, 0, sizeof(sharedMemPtr->plane_data));
+
+        // Reset metadata
+        sharedMemPtr->count = 0;
+        sharedMemPtr->timestamp = 0;
+
+        // Mark as empty
+        sharedMemPtr->is_empty.store(true);
+    }
+
+    // Unmap and close shared memory resources
+    if (sharedMemPtr != nullptr) {
+        munmap(sharedMemPtr, SHARED_MEMORY_SIZE);
+        sharedMemPtr = nullptr;
+    }
+
+    if (shm_fd != -1) {
+        close(shm_fd);
+        shm_fd = -1;
+    }
 }
