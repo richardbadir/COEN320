@@ -3,6 +3,7 @@
 
 
 Radar::Radar(uint64_t& tick_counter) : tick_counter_ref(tick_counter), activeBufferIndex(0), timer(1,0), stopThreads(false) {
+	initSharedMemory();
 	clearSharedMemory(); //For future Use
 	// Start threads for listening to airspace events
     Arrival_Departure = std::thread(&Radar::ListenAirspaceArrivalAndDeparture, this);
@@ -11,9 +12,17 @@ Radar::Radar(uint64_t& tick_counter) : tick_counter_ref(tick_counter), activeBuf
 }
 
 Radar::~Radar() {
-    // Join threads to ensure proper cleanup
     shutdown();
-    clearSharedMemory();//For future Use */
+
+    if (sharedMemPtr != nullptr && sharedMemPtr != MAP_FAILED) {
+        munmap(sharedMemPtr, SHARED_MEMORY_SIZE);
+        sharedMemPtr = nullptr;
+    }
+
+    if (shm_fd != -1) {
+        close(shm_fd);
+        shm_fd = -1;
+    }
 }
 
 void Radar::shutdown() {
@@ -225,35 +234,53 @@ void Radar::writeToSharedMemory() {
         activeBuffer.clear();
     }
 
-    // Clean up shared memory mapping and file descriptor
-    munmap(sharedMemPtr, SHARED_MEMORY_SIZE);
-    close(shm_fd);
+ //might have to do some cleanup here
 }
 
 void Radar::clearSharedMemory() {
-    // Protect access while clearing shared memory
     std::lock_guard<std::mutex> lock(bufferSwitchMutex);
 
-    if (sharedMemPtr != nullptr) {
-        // Clear plane data
-        std::memset(sharedMemPtr->plane_data, 0, sizeof(sharedMemPtr->plane_data));
-
-        // Reset metadata
-        sharedMemPtr->count = 0;
-        sharedMemPtr->timestamp = 0;
-
-        // Mark as empty
-        sharedMemPtr->is_empty.store(true);
+    if (sharedMemPtr == nullptr) {
+        return;
     }
 
-    // Unmap and close shared memory resources
-    if (sharedMemPtr != nullptr) {
-        munmap(sharedMemPtr, SHARED_MEMORY_SIZE);
-        sharedMemPtr = nullptr;
+    std::memset(sharedMemPtr->plane_data, 0, sizeof(sharedMemPtr->plane_data));
+    sharedMemPtr->count = 0;
+    sharedMemPtr->timestamp = 0;
+    sharedMemPtr->is_empty.store(true);
+}
+void Radar::initSharedMemory() {
+    // Create or open shared memory object
+    shm_fd = shm_open("/radar_shm", O_CREAT | O_RDWR, 0666);
+    if (shm_fd == -1) {
+        perror("shm_open failed");
+        exit(EXIT_FAILURE);
     }
 
-    if (shm_fd != -1) {
+    // Set size of shared memory
+    if (ftruncate(shm_fd, SHARED_MEMORY_SIZE) == -1) {
+        perror("ftruncate failed");
         close(shm_fd);
-        shm_fd = -1;
+        exit(EXIT_FAILURE);
     }
+
+    // Map shared memory into process address space
+    sharedMemPtr = static_cast<SharedMemory*>(
+        mmap(nullptr,
+             SHARED_MEMORY_SIZE,
+             PROT_READ | PROT_WRITE,
+             MAP_SHARED,
+             shm_fd,
+             0)
+    );
+
+    if (sharedMemPtr == MAP_FAILED) {
+        perror("mmap failed");
+        close(shm_fd);
+        exit(EXIT_FAILURE);
+    }
+
+    // Initialize memory
+    std::memset(sharedMemPtr, 0, SHARED_MEMORY_SIZE);
+    sharedMemPtr->is_empty.store(true);
 }

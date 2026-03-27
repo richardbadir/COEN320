@@ -29,6 +29,7 @@ public:
 
     void ListenAirspaceArrivalAndDeparture();
     void ListenUpdatePosition();
+    void initSharedMemory();
 
     // Shared memory write method
     void writeToSharedMemory();
@@ -62,7 +63,7 @@ private:
     ATCTimer timer;
 
     // Shared memory pointer
-    SharedMemory* sharedMemPtr;  // Update pointer type to match the structure
+    SharedMemory* sharedMemPtr = nullptr;  // Update pointer type to match the structure
     bool wasAirspaceEmpty = true;  // Track if airspace was empty last time
     int shm_fd = -1;
     std::atomic<bool> stopThreads;
